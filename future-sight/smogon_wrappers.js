@@ -1,7 +1,7 @@
 const { Battle } = require('../dist/sim/battle');
 const { Teams } = require('../dist/sim/teams');
 const { BattleStream, getPlayerStreams } = require('../dist/sim/battle-stream')
-const { State } = require('../dist/sim/state')
+const { State } = require('../dist/sim/state');
 
 // const state = new State();  // singleton for serialization / deserialization
 const pasteToTeam = (paste) => Teams.import(paste)
@@ -25,6 +25,24 @@ const pastesToBattleState = (human_paste, ai_paste) => {
 
     battle.makeChoices('default', 'default');
     return State.serializeBattle(battle);
+}
+
+const getBattleStateInfo = (battle_state) => {
+    const battle = State.deserializeBattle(battle_state);
+
+    //get the current battling pokemon
+    const playerSide = battle.sides[0];
+    const playerActiveMon = playerSide.active[0];
+
+    const enemySide = battle.sides[1];
+    const enemyActiveMon = enemySide.active[0];
+
+    const battleStateInfo = {playerActiveMon : playerActiveMon,
+                             enemyActiveMon : enemyActiveMon,
+                             playerSide : playerSide,
+                             enemySide : enemySide};
+    
+    return battleStateInfo;
 }
 
 const getPossibleActions = (battle_state) => {
@@ -141,12 +159,14 @@ const updateBattleStateWithActions = (battle_state, p1Action, p2Action) => {
 
 module.exports = {
     pastesToBattleState,
+    getBattleStateInfo,
     getPossibleActions,
     updateBattleStateWithActions,
 };
 
 module.exports = {
     pastesToBattleState,
+    getBattleStateInfo,
     getPossibleActions,
     updateBattleStateWithActions,
 }
