@@ -550,7 +550,7 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		this.ladder = typeof format.rated === 'string' ? toID(format.rated) : options.format;
 		this.playerCap = format.playerCount;
 
-		this.stream = PM.createStream();
+		this.stream = PM.createStream() as RoomBattleStream;
 
 		let ratedMessage = options.ratedMessage || '';
 		if (this.rated) {
@@ -658,15 +658,15 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 
 		const validSlots = this.players.filter(player => !player.id).map(player => player.slot);
 
-		if (slot && !validSlots.includes(slot)) {
-			user.popup(`This battle already has a user in slot ${slot}.`);
-			return false;
-		}
+		// if (slot && !validSlots.includes(slot)) {
+		// 	user.popup(`This battle already has a user in slot ${slot}.`);
+		// 	return false;
+		// }
 
-		if (!validSlots.length) {
-			user.popup(`This battle already has ${this.playerCap} players.`);
-			return false;
-		}
+		// if (!validSlots.length) {
+		// 	user.popup(`This battle already has ${this.playerCap} players.`);
+		// 	return false;
+		// }
 
 		slot ??= this.players.find(player => player.invite === user.id)?.slot;
 		if (!slot && validSlots.length > 1) {

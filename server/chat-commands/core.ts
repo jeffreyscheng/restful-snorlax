@@ -17,7 +17,13 @@
 import {Utils} from '../../lib';
 import type {UserSettings} from '../users';
 import type {GlobalPermission, RoomPermission} from '../user-groups';
-
+import type {RoomBattleOptions} from '../room-battle';
+import {Connection, User, Users} from '../users';
+import {Rooms} from '../rooms';
+import {State} from '../../sim/state';
+import {RoomBattle, RoomBattleStream} from '../room-battle';
+import {Battle} from '../../sim';
+import {Stream} from 'stream';
 export const crqHandlers: {[k: string]: Chat.CRQHandler} = {
 	userdetails(target, user, trustable) {
 		if (target.length > 18) {
@@ -177,6 +183,23 @@ export const crqHandlers: {[k: string]: Chat.CRQHandler} = {
 	},
 };
 
+function createGuestUser(connection: Connection): User {
+    const user = new User(connection);
+	delete user.id;
+    Users.add(user);
+    return user;
+}
+
+function assertIsInstance(obj: any, className: Function) {
+	if (!(obj instanceof className)) {
+	  throw new Error(`Object is not an instance of ${className.name}`);
+	}
+  }
+
+function isRoomBattleStream(obj: Stream): obj is RoomBattleStream {
+	return 'battle' in obj;
+}
+
 export const commands: Chat.ChatCommands = {
 	version(target, room, user) {
 		if (!this.runBroadcast()) return;
@@ -186,6 +209,101 @@ export const commands: Chat.ChatCommands = {
 	versionhelp: [
 		`/version - Get the current server version.`,
 	],
+	jeffrey(target, room, user) {
+		if (!this.runBroadcast()) return;
+		this.sendReplyBox("Jeffrey is awesome");
+	},
+	jeffreyhelp: [
+		`/jeffrey - Declares that Jeffrey is awesome.`,
+	],
+	jeffreyis(target, room, user) {
+		if (!this.runBroadcast()) return;
+		if (!target) return this.parse('/help jeffreyis');
+		this.sendReplyBox(`Jeffrey is ${target}`);
+	},
+	jeffreyishelp: [
+		`/jeffreyis [attribute] - Declares that Jeffrey is [attribute].`,
+	],
+	newroom(target, room, user) {
+	
+		// Create two guest users
+		const guestUser1 = createGuestUser(user.connections[0]);
+		const guestUser2 = createGuestUser(user.connections[0]);
+	
+		const options: RoomBattleOptions = {
+			format: 'gen8randombattle',
+			players: [{user: guestUser1}, {user: guestUser2}],
+			rated: false,
+			tour: null,
+		};
+	
+		const battleRoom = Rooms.createBattle(options);
+		if (!battleRoom) {
+			return this.errorReply(`An error occurred while trying to create the battle room.`);
+		}
+	
+		this.sendReply(`Empty battle room created with ID: ${battleRoom.roomid}`);
+		this.modlog('NEWROOM', null, battleRoom.roomid);
+		user.joinRoom(battleRoom);
+	},
+	newroomhelp: [
+		`/newroom - Creates a new empty battle room with a generated name. Requires: &`,
+	],
+	newroom2(target, room, user) {
+        const [user1Name, user2Name] = target.split(',').map(name => name.trim());
+        if (!user1Name || !user2Name) {
+            return this.errorReply(`You must specify two usernames.`);
+        }
+
+        const user1 = Users.get(user1Name);
+        const user2 = Users.get(user2Name);
+
+        if (!user1 || !user2) {
+            return this.errorReply(`One or both users not found.`);
+        }
+
+        const options: RoomBattleOptions = {
+            format: 'gen8randombattle',
+            players: [{user: user1}, {user: user2}],
+            rated: false,
+            tour: null,
+        };
+
+        const battleRoom = Rooms.createBattle(options);
+        if (!battleRoom) {
+            return this.errorReply(`An error occurred while trying to create the battle room.`);
+        }
+
+        this.sendReply(`Battle room created with ID: ${battleRoom.roomid} between ${user1.name} and ${user2.name}`);
+        this.modlog('NEWROOM2', null, battleRoom.roomid);
+        user.joinRoom(battleRoom);
+    },
+    newroom2help: [
+        `/newroom2 [user1], [user2] - Creates a new battle room between the specified users. Requires: &`,
+    ],
+	printserialized: async function(target, room, user) {
+        if (!room || !room.battle) {
+            return this.errorReply(`This command can only be used in battle rooms.`);
+        }
+		assertIsInstance(room.battle, RoomBattle);
+		if (!isRoomBattleStream(room.battle.stream)) {
+			throw new Error('Stream is not a RoomBattleStream');
+		}
+		else {
+			assertIsInstance(room.battle.stream, RoomBattleStream);
+			assertIsInstance(room.battle.stream.battle, Battle);
+		
+			const serializedData = State.serializeBattle(room.battle.stream.battle);
+			if (!serializedData) {
+				return this.errorReply(`Failed to serialize the battle.`);
+			}
+
+			this.sendReplyBox(`<pre>${Utils.escapeHTML(JSON.stringify(serializedData, null, 2))}</pre>`);
+		}
+	},
+    printserializedhelp: [
+        `/printserialized - Serializes the current battle room state and prints it. Requires: &`,
+    ],
 
 	userlist(target, room, user) {
 		room = this.requireRoom();

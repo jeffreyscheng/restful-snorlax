@@ -2172,6 +2172,7 @@ export const Rooms = {
 		if (players.length > format.playerCount) {
 			throw new Error(`${players.length} players were provided, but the format is a ${format.playerCount}-player format.`);
 		}
+		// commenting out to allow synthetic battles
 		if (new Set(players).size < players.length) {
 			throw new Error(`Players can't battle themselves`);
 		}
