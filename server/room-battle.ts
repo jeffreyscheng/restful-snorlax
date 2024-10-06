@@ -19,7 +19,7 @@ import type {Tournament} from './tournaments/index';
 import type {RoomSettings} from './rooms';
 import type {BestOfGame} from './room-battle-bestof';
 import type {GameTimerSettings} from '../sim/dex-formats';
-
+import {State} from '../sim/state';
 type ChannelIndex = 0 | 1 | 2 | 3 | 4;
 export type PlayerIndex = 1 | 2 | 3 | 4;
 export type ChallengeType = 'rated' | 'unrated' | 'challenge' | 'tour';
@@ -490,6 +490,7 @@ export interface RoomBattleOptions {
 	 * rather than a battle.
 	 */
 	isBestOfSubBattle?: boolean;
+	battleState?: Battle;
 }
 
 export class RoomBattle extends RoomGame<RoomBattlePlayer> {
@@ -535,6 +536,7 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 	options: RoomBattleOptions;
 	frozen?: boolean;
 	dataResolvers?: [((args: string[]) => void), ((error: Error) => void)][];
+
 	constructor(room: GameRoom, options: RoomBattleOptions) {
 		super(room);
 		const format = Dex.formats.get(options.format, true);
@@ -550,7 +552,11 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		this.ladder = typeof format.rated === 'string' ? toID(format.rated) : options.format;
 		this.playerCap = format.playerCount;
 
-		this.stream = PM.createStream() as RoomBattleStream;
+		if (options.battleState) {
+			this.stream = createRoomBattleStreamFromState(options.battleState);
+		} else {
+			this.stream = PM.createStream() as RoomBattleStream;
+		}
 
 		let ratedMessage = options.ratedMessage || '';
 		if (this.rated) {
@@ -1301,7 +1307,8 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 
 export class RoomBattleStream extends BattleStream {
 	override readonly battle: Battle;
-	constructor() {
+	// optional battle to initialize
+	constructor(battle?: Battle) {
 		super({keepAlive: true});
 		this.battle = null!;
 	}
@@ -1349,6 +1356,13 @@ export const PM = new ProcessManager.StreamProcessManager(module, () => new Room
 		Monitor.slow(message.slice(5));
 	}
 });
+
+// i want to be able to initialize battles in room from a serialized state
+// this is a factory for RoomBattleStream from a serialized state
+export function createRoomBattleStreamFromState(battle: Battle) {
+	const stream = new RoomBattleStream(battle);
+	return stream;
+}
 
 if (!PM.isParentProcess) {
 	// This is a child process!

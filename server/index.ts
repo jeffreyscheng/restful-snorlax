@@ -55,6 +55,8 @@ if (isNaN(nodeVersion) || nodeVersion < 16) {
 }
 
 import {FS, Repl} from '../lib';
+import { initRedis } from './redisClient';
+
 
 /*********************************************************
  * Set up most of our globals
@@ -202,3 +204,9 @@ if (Config.ofemain) {
 		addTimestamp: true,
 	});
 }
+
+async function startServer() {
+    await initRedis();
+}
+
+startServer().catch(console.error);

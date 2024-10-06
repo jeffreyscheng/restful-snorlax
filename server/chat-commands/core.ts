@@ -20,10 +20,10 @@ import type {GlobalPermission, RoomPermission} from '../user-groups';
 import type {RoomBattleOptions} from '../room-battle';
 import {Connection, User, Users} from '../users';
 import {Rooms} from '../rooms';
+import {RoomBattle, RoomBattleStream, createRoomBattleStreamFromState} from '../room-battle';
 import {State} from '../../sim/state';
-import {RoomBattle, RoomBattleStream} from '../room-battle';
-import {Battle} from '../../sim';
-import {Stream} from 'stream';
+import {assertIsInstance, getBattleState, getBattleStateHash, addHashStatePairToRedis, getSerializedBattleStateFromRedis, getBattleStream} from './battleStateUtils';
+
 export const crqHandlers: {[k: string]: Chat.CRQHandler} = {
 	userdetails(target, user, trustable) {
 		if (target.length > 18) {
@@ -190,16 +190,6 @@ function createGuestUser(connection: Connection): User {
     return user;
 }
 
-function assertIsInstance(obj: any, className: Function) {
-	if (!(obj instanceof className)) {
-	  throw new Error(`Object is not an instance of ${className.name}`);
-	}
-  }
-
-function isRoomBattleStream(obj: Stream): obj is RoomBattleStream {
-	return 'battle' in obj;
-}
-
 export const commands: Chat.ChatCommands = {
 	version(target, room, user) {
 		if (!this.runBroadcast()) return;
@@ -262,48 +252,68 @@ export const commands: Chat.ChatCommands = {
             return this.errorReply(`One or both users not found.`);
         }
 
-        const options: RoomBattleOptions = {
-            format: 'gen8randombattle',
-            players: [{user: user1}, {user: user2}],
-            rated: false,
-            tour: null,
-        };
-
-        const battleRoom = Rooms.createBattle(options);
         if (!battleRoom) {
             return this.errorReply(`An error occurred while trying to create the battle room.`);
         }
 
         this.sendReply(`Battle room created with ID: ${battleRoom.roomid} between ${user1.name} and ${user2.name}`);
         this.modlog('NEWROOM2', null, battleRoom.roomid);
-        user.joinRoom(battleRoom);
+		user.joinRoom(battleRoom);
+        user1.joinRoom(battleRoom);
+		user2.joinRoom(battleRoom);
     },
     newroom2help: [
         `/newroom2 [user1], [user2] - Creates a new battle room between the specified users. Requires: &`,
     ],
-	printserialized: async function(target, room, user) {
-        if (!room || !room.battle) {
-            return this.errorReply(`This command can only be used in battle rooms.`);
-        }
-		assertIsInstance(room.battle, RoomBattle);
-		if (!isRoomBattleStream(room.battle.stream)) {
-			throw new Error('Stream is not a RoomBattleStream');
-		}
-		else {
-			assertIsInstance(room.battle.stream, RoomBattleStream);
-			assertIsInstance(room.battle.stream.battle, Battle);
-		
-			const serializedData = State.serializeBattle(room.battle.stream.battle);
-			if (!serializedData) {
-				return this.errorReply(`Failed to serialize the battle.`);
-			}
-
-			this.sendReplyBox(`<pre>${Utils.escapeHTML(JSON.stringify(serializedData, null, 2))}</pre>`);
-		}
+	storebattlestate: async function(target, room, user) {
+		const serializedBattleState = getBattleState(room!);
+		const stateHash = getBattleStateHash(serializedBattleState);
+		await addHashStatePairToRedis(stateHash, serializedBattleState);
+		this.sendReply(`Battle state stored with hash: ${stateHash}`);
 	},
-    printserializedhelp: [
-        `/printserialized - Serializes the current battle room state and prints it. Requires: &`,
-    ],
+	storebattlestatehelp: [
+		`/storebattlestate hash, serialized_state - Stores a serialized battle state in Redis with the given hash.`,
+	],
+	fromstate: async function(target, room, user) {
+		const [username1, username2, stateHash] = target.split(',').map(part => part.trim());
+		if (!username1 || !username2 || !stateHash) return this.errorReply("Usage: /fromstate username1, username2, stateHash");
+	
+		const [user1, user2] = [Users.get(username1), Users.get(username2)];
+		if (!user1 || !user2) return this.errorReply("One or both users not found.");
+
+		// make a room with a dummy battle
+		// hopefully the format does not matter
+		const options: RoomBattleOptions = {
+			format: 'gen8randombattle',
+			players: [{user: user1}, {user: user2}],
+			rated: false,
+			tour: null,
+		};
+		const battleRoom = Rooms.createBattle(options);
+
+		// get the battle state
+		const serializedBattleState = await getSerializedBattleStateFromRedis(stateHash);
+		if (!serializedBattleState) return this.errorReply("Invalid hash or battle state not found.");
+	
+		let retrievedBattle;
+		try {
+			retrievedBattle = State.deserializeBattle(serializedBattleState);
+		} catch (e) {
+			return this.errorReply(`Invalid serialized battle state: ${e.message}`);
+		}
+
+		room!.battle.stream = createRoomBattleStreamFromState(retrievedBattle);
+	
+		this.sendReply(`Battle room created with ID: ${battleRoom!.roomid}`);
+		this.modlog('FROMSTATE', null, battleRoom!.roomid);
+		user.joinRoom(battleRoom!);
+		user1.joinRoom(battleRoom!);
+		user2.joinRoom(battleRoom!);
+	},
+	fromstatehelp: [
+		`/fromstate username1, username2, hash - Creates a new battle room from a stored state using the given hash. Requires: &`,
+	],
+	
 
 	userlist(target, room, user) {
 		room = this.requireRoom();
