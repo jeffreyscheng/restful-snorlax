@@ -554,6 +554,9 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 
 		if (options.battleState) {
 			this.stream = createRoomBattleStreamFromState(options.battleState);
+			if (!this.stream.battle) {
+				throw new Error(`EARLY CHECK`);
+			}
 		} else {
 			this.stream = PM.createStream() as RoomBattleStream;
 		}
@@ -575,7 +578,11 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		};
 		if (options.inputLog) {
 			void this.stream.write(options.inputLog);
-		} else {
+		}
+		
+		// only use this case if the battle is NOT being restored from a saved state
+		// i.e. battleState was not passed as an option
+		else if (options.battleState === undefined) {
 			void this.stream.write(`>start ` + JSON.stringify(battleOptions));
 		}
 
@@ -586,6 +593,10 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		}
 		for (let i = 0; i < this.playerCap; i++) {
 			const p = options.players[i];
+			// assert that the BattleStream has a Battle.
+			if (!this.stream.battle) {
+				throw new Error(`BattleStream has no Battle and battleState was not passed as an option`);
+			}
 			const player = this.addPlayer(p?.user || null, p || null);
 			if (!player) throw new Error(`failed to create player ${i + 1} in ${room.roomid}`);
 		}
@@ -1310,7 +1321,7 @@ export class RoomBattleStream extends BattleStream {
 	// optional battle to initialize
 	constructor(battle?: Battle) {
 		super({keepAlive: true});
-		this.battle = null!;
+		this.battle = battle || null;
 	}
 
 	override _write(chunk: string) {

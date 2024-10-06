@@ -281,16 +281,6 @@ export const commands: Chat.ChatCommands = {
 		const [user1, user2] = [Users.get(username1), Users.get(username2)];
 		if (!user1 || !user2) return this.errorReply("One or both users not found.");
 
-		// make a room with a dummy battle
-		// hopefully the format does not matter
-		const options: RoomBattleOptions = {
-			format: 'gen8randombattle',
-			players: [{user: user1}, {user: user2}],
-			rated: false,
-			tour: null,
-		};
-		const battleRoom = Rooms.createBattle(options);
-
 		// get the battle state
 		const serializedBattleState = await getSerializedBattleStateFromRedis(stateHash);
 		if (!serializedBattleState) return this.errorReply("Invalid hash or battle state not found.");
@@ -302,7 +292,14 @@ export const commands: Chat.ChatCommands = {
 			return this.errorReply(`Invalid serialized battle state: ${e.message}`);
 		}
 
-		room!.battle.stream = createRoomBattleStreamFromState(retrievedBattle);
+		const options: RoomBattleOptions = {
+			format: 'gen8ou',
+			players: [{user: user1}, {user: user2}],
+			rated: false,
+			tour: null,
+			battleState: retrievedBattle,
+		};
+		const battleRoom = Rooms.createBattle(options);
 	
 		this.sendReply(`Battle room created with ID: ${battleRoom!.roomid}`);
 		this.modlog('FROMSTATE', null, battleRoom!.roomid);
