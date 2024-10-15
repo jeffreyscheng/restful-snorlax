@@ -90,6 +90,10 @@ if (!process.argv[2] || /^[0-9]+$/.test(process.argv[2])) {
 		console.log('');
 		console.log('  Reads a team in any format from stdin, writes the exported (human-readable) team to stdout');
 		console.log('');
+		console.log('pokemon-showdown advance-state STATE_HASH');
+		console.log('');
+		console.log('  Fetches the value corresponding to the given state hash from Redis');
+		console.log('');
 		console.log('pokemon-showdown help');
 		console.log('');
 		console.log('  Displays this reference');
@@ -244,6 +248,36 @@ if (!process.argv[2] || /^[0-9]+$/.test(process.argv[2])) {
 			});
 		}
 		break;
+
+	case 'advance-state':
+		{
+			build();
+			if (!process.argv[3]) {
+				console.error('Please provide a state hash.');
+				process.exit(1);
+			}
+			if (!process.argv[4]) {
+				console.error('Please provide actions, e.g. \'move bulkup\', \'move peck\'');
+				process.exit(1);
+			}
+			if (!process.argv[5]) {
+				console.error('Please provide actions, e.g. \'move bulkup\', \'move peck\'');
+				process.exit(1);
+			}
+			const stateHash = process.argv[3];
+			const player1Action = process.argv[4];
+			const player2Action = process.argv[5];
+
+			const { applyAction } = require('./dist/sim/redis');
+			applyAction(stateHash, player1Action, player2Action).then((newStateHash) => {
+				console.log(newStateHash);
+			}).catch((error) => {
+				console.error('Error applying action:', error);
+				process.exit(1);
+			});
+		}
+		break;
+
 	default:
 		console.error('Unrecognized command: ' + process.argv[2]);
 		console.error('Use `pokemon-showdown help` for help');
