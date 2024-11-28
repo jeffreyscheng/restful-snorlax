@@ -591,9 +591,10 @@ export class CommandContext extends MessageContext {
 			this.handler = parsedCommand.handler;
 		}
 
-		if (!this.bypassRoomCheck && this.room && !(this.user.id in this.room.users)) {
-			return this.popupReply(`You tried to send "${message}" to the room "${this.room.roomid}" but it failed because you were not in that room.`);
-		}
+		// commenting out to allow me to play on behalf of synthetic users
+		// if (!this.bypassRoomCheck && this.room && !(this.user.id in this.room.users)) {
+		// 	return this.popupReply(`You tried to send "${message}" to the room "${this.room.roomid}" but it failed because you were not in that room.`);
+		// }
 
 		if (this.user.statusType === 'idle' && !['unaway', 'unafk', 'back'].includes(this.cmd)) {
 			this.user.setStatusType('online');

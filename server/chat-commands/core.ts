@@ -17,6 +17,12 @@
 import {Utils} from '../../lib';
 import type {UserSettings} from '../users';
 import type {GlobalPermission, RoomPermission} from '../user-groups';
+import type {RoomBattleOptions} from '../room-battle';
+import {Connection, User, Users} from '../users';
+import {Rooms} from '../rooms';
+import {RoomBattle, RoomBattleStream, createRoomBattleStreamFromState} from '../room-battle';
+import {State} from '../../sim/state';
+import {assertIsInstance, getBattleState, getBattleStateHash, addHashStatePairToRedis, getSerializedBattleStateFromRedis, getBattleStream} from './battleStateUtils';
 
 export const crqHandlers: {[k: string]: Chat.CRQHandler} = {
 	userdetails(target, user, trustable) {
@@ -177,6 +183,13 @@ export const crqHandlers: {[k: string]: Chat.CRQHandler} = {
 	},
 };
 
+function createGuestUser(connection: Connection): User {
+    const user = new User(connection);
+	delete user.id;
+    Users.add(user);
+    return user;
+}
+
 export const commands: Chat.ChatCommands = {
 	version(target, room, user) {
 		if (!this.runBroadcast()) return;
@@ -186,6 +199,118 @@ export const commands: Chat.ChatCommands = {
 	versionhelp: [
 		`/version - Get the current server version.`,
 	],
+	jeffrey(target, room, user) {
+		if (!this.runBroadcast()) return;
+		this.sendReplyBox("Jeffrey is awesome");
+	},
+	jeffreyhelp: [
+		`/jeffrey - Declares that Jeffrey is awesome.`,
+	],
+	jeffreyis(target, room, user) {
+		if (!this.runBroadcast()) return;
+		if (!target) return this.parse('/help jeffreyis');
+		this.sendReplyBox(`Jeffrey is ${target}`);
+	},
+	jeffreyishelp: [
+		`/jeffreyis [attribute] - Declares that Jeffrey is [attribute].`,
+	],
+	newroom(target, room, user) {
+	
+		// Create two guest users
+		const guestUser1 = createGuestUser(user.connections[0]);
+		const guestUser2 = createGuestUser(user.connections[0]);
+	
+		const options: RoomBattleOptions = {
+			format: 'gen8randombattle',
+			players: [{user: guestUser1}, {user: guestUser2}],
+			rated: false,
+			tour: null,
+		};
+	
+		const battleRoom = Rooms.createBattle(options);
+		if (!battleRoom) {
+			return this.errorReply(`An error occurred while trying to create the battle room.`);
+		}
+	
+		this.sendReply(`Empty battle room created with ID: ${battleRoom.roomid}`);
+		this.modlog('NEWROOM', null, battleRoom.roomid);
+		user.joinRoom(battleRoom);
+	},
+	newroomhelp: [
+		`/newroom - Creates a new empty battle room with a generated name. Requires: &`,
+	],
+	newroom2(target, room, user) {
+        const [user1Name, user2Name] = target.split(',').map(name => name.trim());
+        if (!user1Name || !user2Name) {
+            return this.errorReply(`You must specify two usernames.`);
+        }
+
+        const user1 = Users.get(user1Name);
+        const user2 = Users.get(user2Name);
+
+        if (!user1 || !user2) {
+            return this.errorReply(`One or both users not found.`);
+        }
+
+        if (!battleRoom) {
+            return this.errorReply(`An error occurred while trying to create the battle room.`);
+        }
+
+        this.sendReply(`Battle room created with ID: ${battleRoom.roomid} between ${user1.name} and ${user2.name}`);
+        this.modlog('NEWROOM2', null, battleRoom.roomid);
+		user.joinRoom(battleRoom);
+        user1.joinRoom(battleRoom);
+		user2.joinRoom(battleRoom);
+    },
+    newroom2help: [
+        `/newroom2 [user1], [user2] - Creates a new battle room between the specified users. Requires: &`,
+    ],
+	storebattlestate: async function(target, room, user) {
+		const serializedBattleState = getBattleState(room!);
+		const stateHash = getBattleStateHash(serializedBattleState);
+		await addHashStatePairToRedis(stateHash, serializedBattleState);
+		this.sendReply(`Battle state stored with hash: ${stateHash}`);
+	},
+	storebattlestatehelp: [
+		`/storebattlestate hash, serialized_state - Stores a serialized battle state in Redis with the given hash.`,
+	],
+	fromstate: async function(target, room, user) {
+		const [username1, username2, stateHash] = target.split(',').map(part => part.trim());
+		if (!username1 || !username2 || !stateHash) return this.errorReply("Usage: /fromstate username1, username2, stateHash");
+	
+		const [user1, user2] = [Users.get(username1), Users.get(username2)];
+		if (!user1 || !user2) return this.errorReply("One or both users not found.");
+
+		// get the battle state
+		const serializedBattleState = await getSerializedBattleStateFromRedis(stateHash);
+		if (!serializedBattleState) return this.errorReply("Invalid hash or battle state not found.");
+	
+		let retrievedBattle;
+		try {
+			retrievedBattle = State.deserializeBattle(serializedBattleState);
+		} catch (e) {
+			return this.errorReply(`Invalid serialized battle state: ${e.message}`);
+		}
+
+		const options: RoomBattleOptions = {
+			format: 'gen8ou',
+			players: [{user: user1}, {user: user2}],
+			rated: false,
+			tour: null,
+			battleState: retrievedBattle,
+		};
+		const battleRoom = Rooms.createBattle(options);
+	
+		this.sendReply(`Battle room created with ID: ${battleRoom!.roomid}`);
+		this.modlog('FROMSTATE', null, battleRoom!.roomid);
+		user.joinRoom(battleRoom!);
+		user1.joinRoom(battleRoom!);
+		user2.joinRoom(battleRoom!);
+	},
+	fromstatehelp: [
+		`/fromstate username1, username2, hash - Creates a new battle room from a stored state using the given hash. Requires: &`,
+	],
+	
 
 	userlist(target, room, user) {
 		room = this.requireRoom();

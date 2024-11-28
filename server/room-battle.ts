@@ -19,7 +19,7 @@ import type {Tournament} from './tournaments/index';
 import type {RoomSettings} from './rooms';
 import type {BestOfGame} from './room-battle-bestof';
 import type {GameTimerSettings} from '../sim/dex-formats';
-
+import {State} from '../sim/state';
 type ChannelIndex = 0 | 1 | 2 | 3 | 4;
 export type PlayerIndex = 1 | 2 | 3 | 4;
 export type ChallengeType = 'rated' | 'unrated' | 'challenge' | 'tour';
@@ -490,6 +490,7 @@ export interface RoomBattleOptions {
 	 * rather than a battle.
 	 */
 	isBestOfSubBattle?: boolean;
+	battleState?: Battle;
 }
 
 export class RoomBattle extends RoomGame<RoomBattlePlayer> {
@@ -535,6 +536,7 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 	options: RoomBattleOptions;
 	frozen?: boolean;
 	dataResolvers?: [((args: string[]) => void), ((error: Error) => void)][];
+
 	constructor(room: GameRoom, options: RoomBattleOptions) {
 		super(room);
 		const format = Dex.formats.get(options.format, true);
@@ -550,7 +552,14 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		this.ladder = typeof format.rated === 'string' ? toID(format.rated) : options.format;
 		this.playerCap = format.playerCount;
 
-		this.stream = PM.createStream();
+		if (options.battleState) {
+			this.stream = createRoomBattleStreamFromState(options.battleState);
+			if (!this.stream.battle) {
+				throw new Error(`EARLY CHECK`);
+			}
+		} else {
+			this.stream = PM.createStream() as RoomBattleStream;
+		}
 
 		let ratedMessage = options.ratedMessage || '';
 		if (this.rated) {
@@ -569,7 +578,11 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		};
 		if (options.inputLog) {
 			void this.stream.write(options.inputLog);
-		} else {
+		}
+		
+		// only use this case if the battle is NOT being restored from a saved state
+		// i.e. battleState was not passed as an option
+		else if (options.battleState === undefined) {
 			void this.stream.write(`>start ` + JSON.stringify(battleOptions));
 		}
 
@@ -580,6 +593,10 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 		}
 		for (let i = 0; i < this.playerCap; i++) {
 			const p = options.players[i];
+			// assert that the BattleStream has a Battle.
+			if (!this.stream.battle) {
+				throw new Error(`BattleStream has no Battle and battleState was not passed as an option`);
+			}
 			const player = this.addPlayer(p?.user || null, p || null);
 			if (!player) throw new Error(`failed to create player ${i + 1} in ${room.roomid}`);
 		}
@@ -658,15 +675,15 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 
 		const validSlots = this.players.filter(player => !player.id).map(player => player.slot);
 
-		if (slot && !validSlots.includes(slot)) {
-			user.popup(`This battle already has a user in slot ${slot}.`);
-			return false;
-		}
+		// if (slot && !validSlots.includes(slot)) {
+		// 	user.popup(`This battle already has a user in slot ${slot}.`);
+		// 	return false;
+		// }
 
-		if (!validSlots.length) {
-			user.popup(`This battle already has ${this.playerCap} players.`);
-			return false;
-		}
+		// if (!validSlots.length) {
+		// 	user.popup(`This battle already has ${this.playerCap} players.`);
+		// 	return false;
+		// }
 
 		slot ??= this.players.find(player => player.invite === user.id)?.slot;
 		if (!slot && validSlots.length > 1) {
@@ -1301,9 +1318,10 @@ export class RoomBattle extends RoomGame<RoomBattlePlayer> {
 
 export class RoomBattleStream extends BattleStream {
 	override readonly battle: Battle;
-	constructor() {
+	// optional battle to initialize
+	constructor(battle?: Battle) {
 		super({keepAlive: true});
-		this.battle = null!;
+		this.battle = battle || null;
 	}
 
 	override _write(chunk: string) {
@@ -1349,6 +1367,13 @@ export const PM = new ProcessManager.StreamProcessManager(module, () => new Room
 		Monitor.slow(message.slice(5));
 	}
 });
+
+// i want to be able to initialize battles in room from a serialized state
+// this is a factory for RoomBattleStream from a serialized state
+export function createRoomBattleStreamFromState(battle: Battle) {
+	const stream = new RoomBattleStream(battle);
+	return stream;
+}
 
 if (!PM.isParentProcess) {
 	// This is a child process!

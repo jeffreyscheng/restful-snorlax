@@ -618,9 +618,10 @@ export class StreamProcessManager extends ProcessManager<StreamProcessWrapper> {
 		processManagers.push(this);
 	}
 	createStream() {
-		const process = this.acquire();
-		if (!process) return this._createStream();
-		return process.createStream();
+		// const process = this.acquire();
+		// if (!process) return this._createStream();
+		// return process.createStream();
+		return this._createStream();
 	}
 	createProcess() {
 		return new StreamProcessWrapper(this.filename, this.messageCallback);
